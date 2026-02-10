@@ -1,3 +1,6 @@
+<img width="694" height="158" alt="image" src="https://github.com/user-attachments/assets/75f1fa20-2e03-4b56-8c29-1756b3e0f406" />
+
+
 # ViruAgent
 
 > 터미널에서 티스토리 블로그 글을 만들고, 다듬고, 발행하는 CLI 도구
@@ -35,6 +38,9 @@ npm start
 
 ## 명령어
 
+<img width="678" height="436" alt="image" src="https://github.com/user-attachments/assets/32c47211-b82e-4ca3-a02d-5201914e9d21" />
+
+
 | 명령어          | 설명                                         |
 | --------------- | -------------------------------------------- |
 | `/write <주제>` | AI가 블로그 글 초안 생성                     |
@@ -44,30 +50,24 @@ npm start
 | `/set`          | 카테고리, 공개 설정, 모델, 말투 변경         |
 | `/list`         | 최근 발행 글 목록                            |
 | `/login`        | 티스토리 세션 갱신                           |
+| `/logout`        | 티스토리 세션 삭제                           |
 
 ---
 
 ## Claude Code로 글쓰기
 
-[Claude Code](https://claude.com/claude-code)에서 자연어로 명령하면 알아서 글을 써줍니다.
+[Claude Code](https://claude.com/claude-code)에서 자연어로 명령할 수 있습니다.
 
 ```
 > viruagent로 블로그에 글 아무거나 써줘 카테고리는 "기타"
 ```
 
+<img width="1054" height="896" alt="image" src="https://github.com/user-attachments/assets/9e30e0ed-32f9-41a4-b39f-e4e6863d5d2d" />
+
+
+
 카테고리, 공개 여부, 발행 방식을 물어본 뒤 AI가 글을 생성해서 티스토리에 발행합니다.
 
-```
-✔ 공개 여부: 공개
-✔ 발행 방식: 바로 발행
-
-| 항목       | 내용                                          |
-|------------|-----------------------------------------------|
-| 제목       | 개발자의 일상에서 발견하는 7가지 작은 행복들   |
-| 카테고리   | 기타                                          |
-| 태그       | 개발자, 일상, 소소한행복, 스트레스해소, 취미활동 |
-| URL        | https://...                  |
-```
 
 ### 직접 CLI로 실행
 
