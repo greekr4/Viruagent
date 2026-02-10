@@ -526,21 +526,21 @@ const commands = {
     console.log(`
 ${chalk.bold('ViruAgent 명령어')}
 
-${chalk.cyan('/write <주제>')}     AI가 블로그 글 초안 생성
-${chalk.cyan('/edit <지시>')}      현재 초안 수정
-${chalk.cyan('/preview')}          현재 초안 미리보기
-${chalk.cyan('/publish')}          글 발행
-${chalk.cyan('/draft')}            임시저장
-${chalk.cyan('/list')}             글 목록 조회
-${chalk.cyan('/categories')}       카테고리 목록
-${chalk.cyan('/set category')}         카테고리 설정
-${chalk.cyan('/set visibility')}       공개설정
-${chalk.cyan('/set model')}            AI 모델 선택
-${chalk.cyan('/set tone')}             글쓰기 톤 설정
-${chalk.cyan('/login')}            티스토리 로그인
-${chalk.cyan('/logout')}           로그아웃 (세션 삭제)
-${chalk.cyan('/help')}             도움말
-${chalk.cyan('/exit')}             종료
+${chalk.cyan('/write <주제>')}      AI가 블로그 글 초안 생성
+${chalk.cyan('/edit <지시>')}       현재 초안 수정
+${chalk.cyan('/preview')}           현재 초안 미리보기
+${chalk.cyan('/publish')}           글 발행
+${chalk.cyan('/draft')}             임시저장
+${chalk.cyan('/list')}              글 목록 조회
+${chalk.cyan('/categories')}        카테고리 목록
+${chalk.cyan('/set category')}      카테고리 설정
+${chalk.cyan('/set visibility')}    공개설정
+${chalk.cyan('/set model')}         AI 모델 선택
+${chalk.cyan('/set tone')}          글쓰기 톤 설정
+${chalk.cyan('/login')}             티스토리 로그인
+${chalk.cyan('/logout')}            로그아웃 (세션 삭제)
+${chalk.cyan('/help')}              도움말
+${chalk.cyan('/exit')}              종료
 
 슬래시 없이 입력하면 AI와 자유 대화 (주제 논의, 아이디어 등)
 `);
@@ -564,7 +564,7 @@ ${chalk.cyan('/exit')}             종료
     log.info('브라우저를 열어 로그인합니다...');
     try {
       const { execSync } = require('child_process');
-      execSync('node login.js', { cwd: __dirname, stdio: 'inherit' });
+      execSync('node lib/login.js', { cwd: __dirname, stdio: 'inherit' });
       log.success('로그인 완료!');
       await initBlog();
       log.success(`블로그 감지: ${getBlogName()}`);
@@ -621,7 +621,7 @@ const main = async () => {
     log.info('브라우저를 열어 로그인합니다...');
     try {
       const { execSync } = require('child_process');
-      execSync('node login.js', { cwd: __dirname, stdio: 'inherit' });
+      execSync('node lib/login.js', { cwd: __dirname, stdio: 'inherit' });
       log.success('로그인 완료!');
     } catch (e) {
       log.error(`로그인 실패: ${e.message}`);

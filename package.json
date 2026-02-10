@@ -3,8 +3,11 @@
   "version": "1.0.0",
   "description": "",
   "main": "src/agent.js",
+  "bin": {
+    "viruagent": "./bin/viruagent.js"
+  },
   "scripts": {
-    "start": "node src/agent.js",
+    "start": "node --no-deprecation src/agent.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
