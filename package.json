@@ -2,8 +2,9 @@
   "name": "viruagent",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "src/agent.js",
   "scripts": {
+    "start": "node src/agent.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -11,6 +12,10 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "chalk": "^4.1.2",
+    "dotenv": "^16.4.7",
+    "oh-my-logo": "^0.4.0",
+    "openai": "^4.77.0",
     "playwright": "^1.58.2"
   }
 }
