@@ -79,6 +79,7 @@ const main = async () => {
     visibility,
     category,
     tag: post.tags,
+    thumbnail: post.thumbnailKage || null,
   });
 
   const url = result.entryUrl || null;
