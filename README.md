@@ -15,7 +15,9 @@
 ## 뭘 할 수 있나
 
 - **AI 대화로 글쓰기** — 챗처럼 대화하면서 아이디어를 다듬고, `/write`로 초안을 뽑고, `/edit`로 고칩니다.
+- **Unsplash 이미지 자동 삽입** — 글 생성 시 주제에 맞는 이미지를 자동 검색하고 티스토리에 업로드합니다. 첫 번째 이미지가 썸네일로 설정됩니다.
 - **브라우저 로그인으로 세션 관리** — OAuth 설정 없이 Playwright로 실제 로그인해서 쿠키를 가져옵니다.
+- **유연한 글 구조** — 5가지 글 유형(튜토리얼, 비교/리뷰, 리스트, 정보 가이드, 인사이트)을 AI가 주제에 맞게 자율 선택합니다.
 - **CLI UX** — 커맨드 힌트, 화살표 키 메뉴, 상태바 등을 넣어서 터미널에서도 불편하지 않게 만들었습니다.
 - **HTML 유지하면서 수정** — 글 구조를 깨뜨리지 않고 특정 부분만 고치거나 말투를 바꿀 수 있습니다.
 
@@ -30,9 +32,18 @@ git clone https://github.com/your-username/viruagent.git
 cd viruagent
 npm install
 cp .env.example .env
-# .env 파일에 OPENAI_API_KEY 입력
+# .env 파일 편집
 npm start
 ```
+
+### 환경 변수
+
+| 변수 | 필수 | 설명 |
+|------|------|------|
+| `OPENAI_API_KEY` | O | OpenAI API 키 |
+| `UNSPLASH_ACCESS_KEY` | X | Unsplash API 키 (없으면 이미지 삽입 건너뜀) |
+
+Unsplash API 키는 [unsplash.com/developers](https://unsplash.com/developers)에서 무료로 발급받을 수 있습니다. (시간당 50회 제한)
 
 ---
 
@@ -90,11 +101,79 @@ node src/cli-post.js --topic "주제" --draft
 
 ---
 
+## Unsplash 이미지 연동
+
+글 생성 시 본문에 `<!-- IMAGE: keyword -->` 플레이스홀더가 자동 삽입됩니다. `UNSPLASH_ACCESS_KEY`가 설정되어 있으면:
+
+1. 키워드로 Unsplash에서 이미지 검색
+2. 이미지 다운로드 → 티스토리에 업로드
+3. 티스토리 네이티브 이미지 치환자(`[##_Image|kage@..._##]`)로 변환
+4. **첫 번째 이미지가 자동으로 글 썸네일(대표 이미지)로 설정**
+
+키가 없으면 이미지 처리를 건너뛰고 글만 발행합니다.
+
+---
+
+## 시스템 프롬프트 커스터마이징
+
+글의 톤, 구조, HTML 스타일은 `config/system-prompt.md`에서 수정할 수 있습니다.
+
+```
+config/
+├── prompt-config.json   # 모델, 말투, 이미지 설정
+└── system-prompt.md     # AI 글쓰기 규칙 (글 유형, HTML 레퍼런스, 톤)
+```
+
+### 글 유형 (AI가 주제에 맞게 자율 선택)
+
+| 유형 | 구조 |
+|------|------|
+| 튜토리얼 | 준비물 → 단계 → 결과 확인 → 트러블슈팅 |
+| 비교/리뷰 | 비교 테이블 + 장단점 → 추천 |
+| 리스트 | 번호 소제목 + 항목별 팁 |
+| 정보 가이드 | 문제 → 원인 → 해결 → FAQ |
+| 인사이트 | 화두 → 근거 → 시사점 → 액션 |
+
+### prompt-config.json 설정
+
+```json
+{
+  "defaultModel": "gpt-4o-mini",
+  "defaultTone": "정보전달",
+  "defaultLength": 2500,
+  "imageSource": "unsplash",
+  "imagesPerPost": 3
+}
+```
+
+---
+
+## 로그
+
+실행 로그가 `logs/` 폴더에 날짜별로 기록됩니다.
+
+```
+logs/
+└── 2026-02-11.log
+```
+
+이미지 업로드 실패, API 오류 등의 디버깅에 활용할 수 있습니다.
+
+```
+[10:30:15.123] [INFO] [unsplash] 이미지 플레이스홀더 3개 발견
+[10:30:16.456] [INFO] [unsplash] Unsplash 이미지 찾음 | {"keyword":"laptop"}
+[10:30:17.789] [INFO] [tistory] 이미지 업로드 성공 | {"url":"https://blog.kakaocdn.net/..."}
+[10:30:17.800] [ERROR] [tistory] 이미지 업로드 실패 | {"status":500}
+```
+
+---
+
 ## 기술 스택
 
 - **런타임**: Node.js (CommonJS)
 - **AI**: OpenAI SDK
-- **자동화**: Playwright , Fetch
+- **이미지**: Unsplash API
+- **자동화**: Playwright, Fetch
 - **CLI**: Chalk, Readline
 
 ---

@@ -8,10 +8,10 @@
 
 ## 글 최상단 고정 구조 (필수)
 
-1. 인용문 + 줄바꿈: `<blockquote data-ke-style="style1"><span style="font-family: 'Noto Serif KR';">인용문</span></blockquote><p data-ke-size="size16"><br /><br /><br /></p>`
+1. 인용문 + 줄바꿈: `<blockquote data-ke-style="style1"><span style="font-family: 'Noto Serif KR';">인용문</span></blockquote><p data-ke-size="size16"><br/></p>`
 2. 썸네일 이미지: `<!-- IMAGE: 주제관련키워드 -->` (첫 번째 이미지 플레이스홀더)
-3. 이후 본문 시작
-4. 줄바꿈 `<br/><br/>`
+3. 썸네일 이미지 이후 줄바꿈 1회 `<br/>`
+4. 이후 본문 시작
 
 ## 글 유형 (자율 선택, 혼합 가능)
 

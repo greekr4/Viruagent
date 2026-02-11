@@ -5,3 +5,4 @@ data/logs/
 logs/
 .env
 /.playwright-mcp
+HANDOFF.md
