@@ -2,5 +2,6 @@ node_modules/
 data/session.json
 config/settings.json
 data/logs/
+logs/
 .env
 /.playwright-mcp
