@@ -28,22 +28,21 @@
 **필요한 것**: Node.js 18+, OpenAI API Key
 
 ```bash
-git clone https://github.com/your-username/viruagent.git
-cd viruagent
-npm install
-cp .env.example .env
-# .env 파일 편집
-npm start
+npm install -g viruagent
+viruagent
 ```
 
-### 환경 변수
+또는 설치 없이 바로 실행:
 
-| 변수 | 필수 | 설명 |
-|------|------|------|
-| `OPENAI_API_KEY` | O | OpenAI API 키 |
-| `UNSPLASH_ACCESS_KEY` | X | Unsplash API 키 (없으면 이미지 삽입 건너뜀) |
+```bash
+npx viruagent
+```
 
-Unsplash API 키는 [unsplash.com/developers](https://unsplash.com/developers)에서 무료로 발급받을 수 있습니다. (시간당 50회 제한)
+최초 실행 시 OpenAI API Key를 입력하면 `~/.viruagent/config.json`에 자동 저장됩니다.
+Unsplash API Key는 `/set api` 명령어로 나중에 설정할 수 있습니다.
+
+- OpenAI API Key: [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+- Unsplash API Key (선택): [unsplash.com/developers](https://unsplash.com/developers) (시간당 50회 제한)
 
 ---
 
@@ -103,7 +102,7 @@ node src/cli-post.js --topic "주제" --draft
 
 ## Unsplash 이미지 연동
 
-글 생성 시 본문에 `<!-- IMAGE: keyword -->` 플레이스홀더가 자동 삽입됩니다. `UNSPLASH_ACCESS_KEY`가 설정되어 있으면:
+글 생성 시 본문에 `<!-- IMAGE: keyword -->` 플레이스홀더가 자동 삽입됩니다. Unsplash API Key가 설정되어 있으면 (`/set api`):
 
 1. 키워드로 Unsplash에서 이미지 검색
 2. 이미지 다운로드 → 티스토리에 업로드

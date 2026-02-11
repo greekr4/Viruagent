@@ -1,7 +1,17 @@
 #!/usr/bin/env node
 
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+const fs = require('fs');
+const os = require('os');
+
+// ~/.viruagent/config.json에서 API 키 로드
+const configPath = path.join(os.homedir(), '.viruagent', 'config.json');
+try {
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  if (config.openaiApiKey) process.env.OPENAI_API_KEY = config.openaiApiKey;
+  if (config.unsplashAccessKey) process.env.UNSPLASH_ACCESS_KEY = config.unsplashAccessKey;
+} catch {}
+
 
 const { generatePost, loadConfig } = require('./lib/ai');
 const { initBlog, publishPost, saveDraft, getCategories, VISIBILITY } = require('./lib/tistory');

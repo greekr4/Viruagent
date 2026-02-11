@@ -63,23 +63,32 @@ const selectMenu = (items, title = '선택하세요') =>
 // 설정 저장/로드
 const fs = require('fs');
 const path = require('path');
-const SETTINGS_PATH = path.join(__dirname, '..', 'config', 'settings.json');
+const os = require('os');
+const CONFIG_DIR = path.join(os.homedir(), '.viruagent');
+const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
 
 const DEFAULTS = { category: 0, visibility: 20, model: 'gpt-4o-mini', tone: loadConfig().defaultTone };
 
 const visLabel = (v) => (v === 20 ? '공개 발행' : v === 15 ? '보호 발행' : '비공개 발행');
 
+const ensureConfigDir = () => {
+  if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+};
+
 const loadSettings = () => {
   try {
-    return { ...DEFAULTS, ...JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8')) };
+    return { ...DEFAULTS, ...JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8')) };
   } catch {
     return { ...DEFAULTS };
   }
 };
 
 const saveSettings = () => {
+  ensureConfigDir();
+  const current = loadSettings();
   const { category, visibility, model, tone } = state;
-  fs.writeFileSync(SETTINGS_PATH, JSON.stringify({ category, visibility, model, tone }, null, 2));
+  const merged = { ...current, category, visibility, model, tone };
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(merged, null, 2));
 };
 
 const saved = loadSettings();
@@ -115,7 +124,8 @@ const animateBanner = async () => {
   const text = figlet.textSync('ViruAgent', { font: 'ANSI Shadow' });
   const lines = text.split('\n');
   const totalLines = lines.length;
-  const sub = '  대화형 티스토리 블로그 에이전트  v1.0';
+  const { version } = require('../package.json');
+  const sub = `  대화형 티스토리 블로그 에이전트  v${version}`;
 
   console.log();
 
@@ -177,7 +187,7 @@ const COMMANDS = [
   '/help',
   '/exit',
 ];
-const SET_KEYS = ['category', 'visibility', 'model', 'tone'];
+const SET_KEYS = ['category', 'visibility', 'model', 'tone', 'api'];
 
 const completer = (line) => {
   // /set model <값> 자동완성
@@ -234,7 +244,7 @@ const COMMAND_HINTS = {
   '/draft': '/draft',
   '/list': '/list',
   '/categories': '/categories',
-  '/set': '/set <category|visibility|model|tone>',
+  '/set': '/set <category|visibility|model|tone|api>',
   '/login': '/login',
   '/logout': '/logout',
   '/help': '/help',
@@ -517,8 +527,53 @@ const commands = {
           log.dim('취소됨');
         }
       }
+    } else if (key === 'api') {
+      const keys = loadApiKeys();
+      const mask = (v) => v ? `${v.slice(0, 8)}${'*'.repeat(8)}` : chalk.dim('(미설정)');
+
+      console.log();
+      log.title('API Key 설정');
+      console.log(`  OpenAI:    ${mask(keys.OPENAI_API_KEY)}`);
+      console.log(`  Unsplash:  ${mask(keys.UNSPLASH_ACCESS_KEY)}`);
+      console.log();
+
+      rl.pause();
+      const apiOptions = ['OpenAI API Key', 'Unsplash Access Key', '취소'];
+      const idx = await selectMenu(apiOptions, 'API Key 선택 (↑↓ 이동, Enter 선택, Esc 취소)');
+      rl.resume();
+
+      if (idx === 0) {
+        rl.pause();
+        const newKey = await askQuestion(chalk.cyan('  새 OpenAI API Key: '));
+        rl.resume();
+        if (newKey) {
+          saveApiKeys({ OPENAI_API_KEY: newKey });
+          log.success('OpenAI API Key가 저장되었습니다.');
+          log.warn('다음 세션부터 적용됩니다. 프로그램을 재시작하세요.');
+        } else {
+          log.dim('변경 없음');
+        }
+      } else if (idx === 1) {
+        rl.pause();
+        const newKey = await askQuestion(chalk.cyan('  새 Unsplash Access Key (삭제하려면 빈 값): '));
+        rl.resume();
+        if (newKey) {
+          saveApiKeys({ UNSPLASH_ACCESS_KEY: newKey });
+          log.success('Unsplash Access Key가 저장되었습니다.');
+          log.warn('다음 세션부터 적용됩니다. 프로그램을 재시작하세요.');
+        } else if (keys.UNSPLASH_ACCESS_KEY) {
+          saveApiKeys({ UNSPLASH_ACCESS_KEY: '' });
+          log.success('Unsplash Access Key가 삭제되었습니다.');
+          log.warn('다음 세션부터 적용됩니다. 프로그램을 재시작하세요.');
+        } else {
+          log.dim('변경 없음');
+        }
+      } else {
+        log.dim('취소됨');
+      }
+      return;
     } else {
-      return log.warn('사용법: /set category | /set visibility | /set model | /set tone');
+      return log.warn('사용법: /set category | /set visibility | /set model | /set tone | /set api');
     }
     saveSettings();
   },
@@ -538,6 +593,7 @@ ${chalk.cyan('/set category')}      카테고리 설정
 ${chalk.cyan('/set visibility')}    공개설정
 ${chalk.cyan('/set model')}         AI 모델 선택
 ${chalk.cyan('/set tone')}          글쓰기 톤 설정
+${chalk.cyan('/set api')}           API Key 관리 (OpenAI, Unsplash)
 ${chalk.cyan('/login')}             티스토리 로그인
 ${chalk.cyan('/logout')}            로그아웃 (세션 삭제)
 ${chalk.cyan('/help')}              도움말
@@ -622,37 +678,91 @@ const askQuestion = (query) =>
     });
   });
 
+const loadApiKeys = () => {
+  const settings = loadSettings();
+  return {
+    OPENAI_API_KEY: settings.openaiApiKey || '',
+    UNSPLASH_ACCESS_KEY: settings.unsplashAccessKey || '',
+  };
+};
+
+const saveApiKeys = (keys) => {
+  ensureConfigDir();
+  const current = loadSettings();
+  if (keys.OPENAI_API_KEY !== undefined) current.openaiApiKey = keys.OPENAI_API_KEY || undefined;
+  if (keys.UNSPLASH_ACCESS_KEY !== undefined) current.unsplashAccessKey = keys.UNSPLASH_ACCESS_KEY || undefined;
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(current, null, 2));
+  // 환경 변수에 반영
+  if (keys.OPENAI_API_KEY) process.env.OPENAI_API_KEY = keys.OPENAI_API_KEY;
+  if (keys.UNSPLASH_ACCESS_KEY) process.env.UNSPLASH_ACCESS_KEY = keys.UNSPLASH_ACCESS_KEY;
+};
+
+const applyApiKeys = () => {
+  const keys = loadApiKeys();
+  if (keys.OPENAI_API_KEY) process.env.OPENAI_API_KEY = keys.OPENAI_API_KEY;
+  if (keys.UNSPLASH_ACCESS_KEY) process.env.UNSPLASH_ACCESS_KEY = keys.UNSPLASH_ACCESS_KEY;
+};
+
 const setupEnv = async () => {
-  const envPath = path.join(__dirname, '..', '.env');
-  if (fs.existsSync(envPath)) return;
+  applyApiKeys();
+  if (process.env.OPENAI_API_KEY) return;
 
   console.log();
   log.title('━━━ 초기 설정 ━━━');
   console.log();
-  log.info('.env 파일이 없습니다. API 키를 설정합니다.\n');
+  log.info('OpenAI API Key가 설정되지 않았습니다.\n');
+  log.dim('  https://platform.openai.com/api-keys 에서 발급받을 수 있습니다.\n');
 
-  const openaiKey = await askQuestion(chalk.cyan('  OpenAI API Key (필수): '));
+  const openaiKey = await askQuestion(chalk.cyan('  OpenAI API Key: '));
   if (!openaiKey) {
     log.error('OpenAI API Key는 필수입니다. 프로그램을 종료합니다.');
     process.exit(1);
   }
 
+  // OpenAI Key 검증
+  try {
+    const res = await fetch('https://api.openai.com/v1/models', {
+      headers: { Authorization: `Bearer ${openaiKey}` },
+    });
+    if (!res.ok) {
+      log.error('OpenAI API Key가 유효하지 않습니다. 키를 확인 후 다시 시도하세요.');
+      process.exit(1);
+    }
+    log.success('OpenAI API Key 확인 완료!');
+  } catch {
+    log.error('OpenAI 서버에 연결할 수 없습니다. 네트워크를 확인하세요.');
+    process.exit(1);
+  }
+
   const unsplashKey = await askQuestion(chalk.cyan('  Unsplash Access Key (선택, Enter로 건너뛰기): '));
 
-  const lines = [`OPENAI_API_KEY=${openaiKey}`];
-  if (unsplashKey) lines.push(`UNSPLASH_ACCESS_KEY=${unsplashKey}`);
+  if (unsplashKey) {
+    try {
+      const res = await fetch('https://api.unsplash.com/photos/random?count=1', {
+        headers: { Authorization: `Client-ID ${unsplashKey}` },
+      });
+      if (!res.ok) {
+        log.warn('Unsplash Key가 유효하지 않습니다. 건너뜁니다.');
+      } else {
+        log.success('Unsplash Access Key 확인 완료!');
+      }
+    } catch {
+      log.warn('Unsplash 서버에 연결할 수 없습니다. 건너뜁니다.');
+    }
+  }
 
-  fs.writeFileSync(envPath, lines.join('\n') + '\n');
-  log.success('.env 파일이 생성되었습니다!\n');
-
-  // 생성된 .env 즉시 로드
-  require('dotenv').config({ path: envPath });
+  saveApiKeys({
+    OPENAI_API_KEY: openaiKey,
+    ...(unsplashKey && { UNSPLASH_ACCESS_KEY: unsplashKey }),
+  });
+  log.success(`설정이 저장되었습니다! (${CONFIG_PATH})\n`);
+  if (!unsplashKey) log.dim('  Unsplash는 나중에 /set api 에서 설정할 수 있습니다.\n');
 };
 
 const main = async () => {
   await animateBanner();
 
-  // .env 파일 없으면 초기 설정
+  // API Key 없으면 초기 설정
   await setupEnv();
 
   // 세션 체크 — 로그인 필수
@@ -672,28 +782,36 @@ const main = async () => {
   // 부팅 시퀀스
   console.log(chalk.dim('  시스템 초기화 중...\n'));
 
-  await showBootStep(
-    'OpenAI 연결',
-    async () => {
-      const res = await fetch('https://api.openai.com/v1/models', {
-        headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-      });
-      if (!res.ok) throw new Error('키가 유효하지 않습니다');
-    },
-    1000,
-  );
-
-  if (process.env.UNSPLASH_ACCESS_KEY) {
+  try {
     await showBootStep(
-      'Unsplash 연결',
+      'OpenAI 연결',
       async () => {
-        const res = await fetch('https://api.unsplash.com/photos/random?count=1', {
-          headers: { Authorization: `Client-ID ${process.env.UNSPLASH_ACCESS_KEY}` },
+        const res = await fetch('https://api.openai.com/v1/models', {
+          headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
         });
         if (!res.ok) throw new Error('키가 유효하지 않습니다');
       },
       1000,
     );
+  } catch (e) {
+    log.warn(`  OpenAI 연결 실패: ${e.message}\n  ${chalk.dim('/set api 명령어로 키를 확인하세요.')}`);
+  }
+
+  if (process.env.UNSPLASH_ACCESS_KEY) {
+    try {
+      await showBootStep(
+        'Unsplash 연결',
+        async () => {
+          const res = await fetch('https://api.unsplash.com/photos/random?count=1', {
+            headers: { Authorization: `Client-ID ${process.env.UNSPLASH_ACCESS_KEY}` },
+          });
+          if (!res.ok) throw new Error('키가 유효하지 않습니다');
+        },
+        1000,
+      );
+    } catch (e) {
+      log.warn(`  Unsplash 연결 실패: ${e.message}\n  ${chalk.dim('/set api 명령어로 키를 확인하세요.')}`);
+    }
   }
 
   let blogOk = false;

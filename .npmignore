@@ -1,6 +1,5 @@
 .env
 .env.*
-!.env.example
 data/
 node_modules/
 .git/

@@ -1,17 +1,16 @@
 const OpenAI = require('openai');
 const fs = require('fs');
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
-
-if (!process.env.OPENAI_API_KEY) {
-  console.error('\x1b[31m✗ OPENAI_API_KEY가 설정되지 않았습니다.\x1b[0m');
-  console.error('\x1b[33m  1. 프로젝트 루트에 .env 파일을 생성하세요');
-  console.error('  2. OPENAI_API_KEY=sk-... 형식으로 키를 입력하세요');
-  console.error('  3. https://platform.openai.com/api-keys 에서 키를 발급받을 수 있습니다\x1b[0m');
-  process.exit(1);
-}
-
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+let client;
+const getClient = () => {
+  if (!client) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY가 설정되지 않았습니다. /set api 로 키를 설정하세요.');
+    }
+    client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return client;
+};
 
 const { replaceImagePlaceholders } = require('./unsplash');
 const { createLogger } = require('./logger');
@@ -19,7 +18,7 @@ const aiLog = createLogger('ai');
 
 const handleApiError = (e) => {
   if (e?.status === 401 || e?.code === 'invalid_api_key') {
-    throw new Error('OpenAI API 키가 유효하지 않습니다. .env 파일의 OPENAI_API_KEY를 확인하세요.');
+    throw new Error('OpenAI API 키가 유효하지 않습니다. /set api 로 키를 확인하세요.');
   }
   if (e?.status === 429) {
     throw new Error('API 요청 한도를 초과했습니다. 잠시 후 다시 시도하거나 요금제를 확인하세요.');
@@ -77,7 +76,7 @@ const generatePost = async (topic, options = {}) => {
 
   let res;
   try {
-    res = await client.chat.completions.create({
+    res = await getClient().chat.completions.create({
       model,
       messages: [
         { role: 'system', content: config.systemPrompt },
@@ -136,7 +135,7 @@ const revisePost = async (content, instruction, model) => {
 
   let res;
   try {
-    res = await client.chat.completions.create({
+    res = await getClient().chat.completions.create({
       model,
       messages: [
         { role: 'system', content: config.systemPrompt },
@@ -174,7 +173,7 @@ const chat = async (messages, model) => {
 
   let res;
   try {
-    res = await client.chat.completions.create({
+    res = await getClient().chat.completions.create({
       model,
       messages: [
         { role: 'system', content: '당신은 블로그 글쓰기를 돕는 AI 어시스턴트입니다. 주제 논의, 아이디어 브레인스토밍, 글 구조 제안 등을 도와줍니다. 한국어로 대화하세요.' },

@@ -1,9 +1,7 @@
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
 const { createLogger } = require('./logger');
 const log = createLogger('unsplash');
 
-const UNSPLASH_ACCESS_KEY = process.env.UNSPLASH_ACCESS_KEY;
+const getUnsplashKey = () => process.env.UNSPLASH_ACCESS_KEY;
 
 /**
  * Unsplash에서 키워드로 이미지 검색
@@ -11,12 +9,12 @@ const UNSPLASH_ACCESS_KEY = process.env.UNSPLASH_ACCESS_KEY;
  * @returns {Promise<Object|null>} { url, alt, credit, link } 또는 null
  */
 const searchImage = async (keyword) => {
-  if (!UNSPLASH_ACCESS_KEY) return null;
+  if (!getUnsplashKey()) return null;
 
   try {
     const url = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(keyword)}&per_page=1&orientation=landscape`;
     const res = await fetch(url, {
-      headers: { Authorization: `Client-ID ${UNSPLASH_ACCESS_KEY}` },
+      headers: { Authorization: `Client-ID ${getUnsplashKey()}` },
     });
 
     if (!res.ok) {
@@ -75,8 +73,8 @@ const replaceImagePlaceholders = async (html, options = {}) => {
   let thumbnailUrl = null;
   let thumbnailKage = null;
 
-  if (!UNSPLASH_ACCESS_KEY) {
-    log.warn('UNSPLASH_ACCESS_KEY 미설정 — 이미지 처리 건너뜀');
+  if (!getUnsplashKey()) {
+    log.warn('getUnsplashKey() 미설정 — 이미지 처리 건너뜀');
     return { html, thumbnailUrl, thumbnailKage };
   }
 
