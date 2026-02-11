@@ -162,8 +162,10 @@ const showBootStep = async (msg, asyncFn, minMs = 800) => {
 
 const withSpinner = async (message, asyncFn) => {
   let i = 0;
+  const cols = process.stdout.columns || 80;
+  const truncated = message.length + 2 > cols ? message.slice(0, cols - 5) + '...' : message;
   const timer = setInterval(() => {
-    process.stdout.write(`\r${chalk.cyan(SPINNER_FRAMES[i++ % SPINNER_FRAMES.length])} ${message}`);
+    process.stdout.write(`\r\x1B[K${chalk.cyan(SPINNER_FRAMES[i++ % SPINNER_FRAMES.length])} ${truncated}`);
   }, 80);
   try {
     return await asyncFn();
