@@ -1,4 +1,4 @@
-<img width="694" height="158" alt="image" src="https://github.com/user-attachments/assets/75f1fa20-2e03-4b56-8c29-1756b3e0f406" />
+<img width="525" height="113" alt="image" src="https://github.com/user-attachments/assets/8bbd21d3-5f14-4d11-933d-17bdf6969ebf" />
 
 
 # ViruAgent
@@ -38,7 +38,10 @@ npm start
 
 ## 명령어
 
-<img width="678" height="436" alt="image" src="https://github.com/user-attachments/assets/32c47211-b82e-4ca3-a02d-5201914e9d21" />
+<img width="547" height="441" alt="image" src="https://github.com/user-attachments/assets/bda2730d-d055-4872-b2b9-e24aeb7d5fd9" />
+
+---
+
 
 
 | 명령어          | 설명                                         |
