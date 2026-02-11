@@ -613,8 +613,47 @@ const handleInput = async (input) => {
   }
 };
 
+const askQuestion = (query) =>
+  new Promise((resolve) => {
+    const tmpRl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    tmpRl.question(query, (answer) => {
+      tmpRl.close();
+      resolve(answer.trim());
+    });
+  });
+
+const setupEnv = async () => {
+  const envPath = path.join(__dirname, '..', '.env');
+  if (fs.existsSync(envPath)) return;
+
+  console.log();
+  log.title('━━━ 초기 설정 ━━━');
+  console.log();
+  log.info('.env 파일이 없습니다. API 키를 설정합니다.\n');
+
+  const openaiKey = await askQuestion(chalk.cyan('  OpenAI API Key (필수): '));
+  if (!openaiKey) {
+    log.error('OpenAI API Key는 필수입니다. 프로그램을 종료합니다.');
+    process.exit(1);
+  }
+
+  const unsplashKey = await askQuestion(chalk.cyan('  Unsplash Access Key (선택, Enter로 건너뛰기): '));
+
+  const lines = [`OPENAI_API_KEY=${openaiKey}`];
+  if (unsplashKey) lines.push(`UNSPLASH_ACCESS_KEY=${unsplashKey}`);
+
+  fs.writeFileSync(envPath, lines.join('\n') + '\n');
+  log.success('.env 파일이 생성되었습니다!\n');
+
+  // 생성된 .env 즉시 로드
+  require('dotenv').config({ path: envPath });
+};
+
 const main = async () => {
   await animateBanner();
+
+  // .env 파일 없으면 초기 설정
+  await setupEnv();
 
   // 세션 체크 — 로그인 필수
   while (!fs.existsSync(path.join(__dirname, '..', 'data', 'session.json'))) {

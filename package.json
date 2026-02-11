@@ -1,18 +1,32 @@
 {
   "name": "viruagent",
-  "version": "1.0.0",
-  "description": "",
+  "version": "1.0.1",
+  "description": "AI 기반 티스토리 블로그 자동 발행 CLI 도구",
   "main": "src/agent.js",
   "bin": {
-    "viruagent": "./bin/viruagent.js"
+    "viruagent": "bin/viruagent.js"
   },
   "scripts": {
     "start": "node --no-deprecation src/agent.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "tistory",
+    "blog",
+    "openai",
+    "cli",
+    "ai"
+  ],
+  "author": "tkman",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/greekr4/Viruagent.git"
+  },
+  "homepage": "https://github.com/greekr4/Viruagent#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "type": "commonjs",
   "dependencies": {
     "chalk": "^4.1.2",

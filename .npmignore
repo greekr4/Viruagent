@@ -4,3 +4,7 @@
 data/
 node_modules/
 .git/
+.playwright-mcp/
+logs/
+HANDOFF.md
+config/settings.json
