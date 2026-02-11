@@ -309,8 +309,8 @@ const drawStatusBar = () => {
   const parts = [
     chalk.bgBlue.white(` ${state.model} `),
     chalk.bgMagenta.white(` ${getBlogName() || '미연결'} `),
-    chalk.bgCyan.white(` ${cat} `),
-    chalk.bgGreen.white(` ${vis} `),
+    chalk.bgHex('#6A0DAD').white(` ${cat} `),
+    chalk.bgHex('#D4A017').black(` ${vis} `),
     chalk.bgRed.white(` ${state.tone} `),
     state.draft ? chalk.bgYellow.black(` 초안: ${state.draft.title.slice(0, 20)} `) : '',
   ].filter(Boolean);
@@ -394,6 +394,7 @@ const commands = {
         visibility: state.visibility,
         category: state.category,
         tag: state.draft.tags,
+        thumbnail: state.draft.thumbnailKage || null,
       });
       log.success(`발행 완료! ${result.entryUrl || ''}`);
       state.draft = null;
@@ -632,23 +633,43 @@ const main = async () => {
   // 부팅 시퀀스
   console.log(chalk.dim('  시스템 초기화 중...\n'));
 
+  await showBootStep(
+    'OpenAI 연결',
+    async () => {
+      const res = await fetch('https://api.openai.com/v1/models', {
+        headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      });
+      if (!res.ok) throw new Error('키가 유효하지 않습니다');
+    },
+    1000,
+  );
+
+  if (process.env.UNSPLASH_ACCESS_KEY) {
+    await showBootStep(
+      'Unsplash 연결',
+      async () => {
+        const res = await fetch('https://api.unsplash.com/photos/random?count=1', {
+          headers: { Authorization: `Client-ID ${process.env.UNSPLASH_ACCESS_KEY}` },
+        });
+        if (!res.ok) throw new Error('키가 유효하지 않습니다');
+      },
+      1000,
+    );
+  }
+
   let blogOk = false;
   try {
-    await showBootStep('세션 로드', async () => {
-      // 세션 파일 존재 확인은 위에서 완료
-    }, 1000);
-
-    await showBootStep('블로그 연결', async () => {
-      await initBlog();
-    }, 1200);
+    await showBootStep(
+      '티스토리 연결',
+      async () => {
+        await initBlog();
+        state.categories = await getCategories();
+      },
+      1200,
+    );
     blogOk = true;
-
-    await showBootStep(`${getBlogName()} 카테고리 로드`, async () => {
-      state.categories = await getCategories();
-    }, 1000);
   } catch (e) {
-    if (!blogOk) log.warn(`  블로그 연결 실패: ${e.message}`);
-    else log.warn(`  카테고리 로드 실패: ${e.message}`);
+    if (!blogOk) log.warn(`  티스토리 연결 실패: ${e.message}\n  ${chalk.dim('/login 명령어로 다시 로그인하세요.')}`);
   }
 
   console.log();

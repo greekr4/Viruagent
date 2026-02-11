@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const { createLogger } = require('./logger');
+const log = createLogger('tistory');
 
 let blogName = null;
 let blogInfo = null;
@@ -40,6 +42,12 @@ const initBlog = async () => {
   });
 
   if (!res.ok) throw new Error(`블로그 정보 조회 실패: ${res.status}`);
+
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error('세션이 만료되었습니다. /login으로 다시 로그인하세요.');
+  }
+
   const json = await res.json();
 
   const defaultBlog = json.data?.find(b => b.defaultBlog) || json.data?.[0];
@@ -64,28 +72,32 @@ const VISIBILITY = { PRIVATE: 0, PROTECTED: 15, PUBLIC: 20 };
  * @param {number} [options.visibility=20] - 0: 비공개, 15: 보호, 20: 공개
  * @param {number} [options.category=0] - 카테고리 ID
  * @param {string} [options.tag=''] - 태그 (쉼표 구분)
+ * @param {string} [options.thumbnail=null] - 썸네일 kage@ 경로
  * @returns {Promise<Object>}
  */
-const publishPost = async ({ title, content, visibility = VISIBILITY.PUBLIC, category = 0, tag = '' }) => {
+const publishPost = async ({ title, content, visibility = VISIBILITY.PUBLIC, category = 0, tag = '', thumbnail = null }) => {
+  const body = {
+    id: '0',
+    title,
+    content,
+    visibility,
+    category,
+    tag,
+    published: 1,
+    type: 'post',
+    uselessMarginForEntry: 1,
+    cclCommercial: 0,
+    cclDerive: 0,
+    attachments: [],
+    recaptchaValue: '',
+    draftSequence: null,
+  };
+  if (thumbnail) body.thumbnail = thumbnail;
+
   const res = await fetch(`${getBase()}/post.json`, {
     method: 'POST',
     headers: getHeaders(),
-    body: JSON.stringify({
-      id: '0',
-      title,
-      content,
-      visibility,
-      category,
-      tag,
-      published: 1,
-      type: 'post',
-      uselessMarginForEntry: 1,
-      cclCommercial: 0,
-      cclDerive: 0,
-      attachments: [],
-      recaptchaValue: '',
-      draftSequence: null,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) throw new Error(`발행 실패: ${res.status}`);
@@ -148,7 +160,44 @@ const getCategories = async () => {
   return categories;
 };
 
-module.exports = { initBlog, getBlogName, getBlogInfo, publishPost, saveDraft, getPosts, getCategories, VISIBILITY };
+/**
+ * 이미지 업로드
+ * @param {Buffer} imageBuffer - 이미지 데이터
+ * @param {string} [filename='image.jpg'] - 파일명
+ * @returns {Promise<string>} 티스토리 이미지 치환자 문자열
+ */
+const uploadImage = async (imageBuffer, filename = 'image.jpg') => {
+  if (!blogName) await initBlog();
+
+  const formData = new FormData();
+  const blob = new Blob([imageBuffer], { type: 'image/jpeg' });
+  formData.append('file', blob, filename);
+
+  const cookies = loadCookies();
+  const res = await fetch(`${getBase()}/post/attach.json`, {
+    method: 'POST',
+    headers: {
+      'Cookie': cookies,
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      'Referer': `${getBase()}/newpost`,
+      'Accept': 'application/json, text/plain, */*',
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    log.error('이미지 업로드 실패', { status: res.status, body: text.substring(0, 500) });
+    throw new Error(`이미지 업로드 실패: ${res.status}`);
+  }
+  const data = await res.json();
+  log.info('이미지 업로드 성공', { url: data.url, key: data.key, filename: data.filename });
+
+  if (!data.url) throw new Error('이미지 업로드 응답에 URL이 없습니다.');
+  return data;
+};
+
+module.exports = { initBlog, getBlogName, getBlogInfo, publishPost, saveDraft, getPosts, getCategories, uploadImage, VISIBILITY };
 
 // CLI 모드
 if (require.main === module) {

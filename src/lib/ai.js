@@ -13,6 +13,10 @@ if (!process.env.OPENAI_API_KEY) {
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+const { replaceImagePlaceholders } = require('./unsplash');
+const { createLogger } = require('./logger');
+const aiLog = createLogger('ai');
+
 const handleApiError = (e) => {
   if (e?.status === 401 || e?.code === 'invalid_api_key') {
     throw new Error('OpenAI API 키가 유효하지 않습니다. .env 파일의 OPENAI_API_KEY를 확인하세요.');
@@ -27,9 +31,12 @@ const handleApiError = (e) => {
 };
 
 const CONFIG_PATH = path.join(__dirname, '..', '..', 'config', 'prompt-config.json');
+const SYSTEM_PROMPT_PATH = path.join(__dirname, '..', '..', 'config', 'system-prompt.md');
 
 const loadConfig = () => {
-  return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+  const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+  config.systemPrompt = fs.readFileSync(SYSTEM_PROMPT_PATH, 'utf-8');
+  return config;
 };
 
 const MODELS = [
@@ -82,8 +89,8 @@ const generatePost = async (topic, options = {}) => {
 
 작성 요구사항:
 - 제목은 검색 키워드를 포함하면서 클릭을 유도하는 형태로 작성 (숫자 활용 권장)
-- 본문은 도입부 → 번호 매긴 h2 소제목들 → 자주 묻는 질문(h3) → 마무리(h3) 구조
-- 각 소제목 섹션에는 설명 + 불릿 포인트 + 👉 팁 포함
+- 주제에 가장 적합한 글 유형과 구조를 자율적으로 선택하여 작성
+- 본문 중 적절한 위치에 <!-- IMAGE: 영문키워드 --> 플레이스홀더를 3개 내외 삽입
 - 태그는 검색 유입에 효과적인 키워드 5~7개
 
 다음 JSON 형식으로 응답하세요:
@@ -97,7 +104,24 @@ const generatePost = async (topic, options = {}) => {
     handleApiError(e);
   }
 
-  return JSON.parse(res.choices[0].message.content);
+  const result = JSON.parse(res.choices[0].message.content);
+  aiLog.info('GPT 응답 수신', { title: result.title, contentLength: result.content?.length });
+
+  // 티스토리 업로드 함수가 있으면 전달 (initBlog 완료 상태에서만 동작)
+  let uploadFn;
+  try {
+    const { uploadImage } = require('./tistory');
+    uploadFn = uploadImage;
+  } catch (e) {
+    aiLog.warn('tistory uploadImage 로드 실패', { error: e.message });
+  }
+  const imageResult = await replaceImagePlaceholders(result.content, { uploadFn });
+  result.content = imageResult.html;
+  result.thumbnailUrl = imageResult.thumbnailUrl;
+  result.thumbnailKage = imageResult.thumbnailKage;
+  aiLog.info('이미지 처리 완료', { thumbnailKage: result.thumbnailKage });
+
+  return result;
 };
 
 /**
