@@ -188,4 +188,284 @@ const chat = async (messages, model) => {
   return res.choices[0].message.content;
 };
 
-module.exports = { generatePost, revisePost, chat, MODELS, loadConfig };
+// ─── Agent Pattern: Tool Definitions ───
+
+const AGENT_PROMPT_PATH = path.join(__dirname, '..', '..', 'config', 'agent-prompt.md');
+
+const loadAgentPrompt = () => {
+  try {
+    return fs.readFileSync(AGENT_PROMPT_PATH, 'utf-8');
+  } catch {
+    return '당신은 블로그 글쓰기를 돕는 AI 에이전트입니다. 한국어로 대화하세요.';
+  }
+};
+
+const agentTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'generate_post',
+      description: '블로그 글 초안을 생성합니다.',
+      parameters: {
+        type: 'object',
+        properties: {
+          topic: { type: 'string', description: '글 주제' },
+          tone: { type: 'string', description: '글 톤/말투 (선택)' },
+        },
+        required: ['topic'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'edit_post',
+      description: '현재 초안을 수정합니다.',
+      parameters: {
+        type: 'object',
+        properties: {
+          instruction: { type: 'string', description: '수정 지시사항' },
+        },
+        required: ['instruction'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'preview_post',
+      description: '현재 초안을 미리봅니다.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'publish_post',
+      description: '현재 초안을 블로그에 발행합니다.',
+      parameters: {
+        type: 'object',
+        properties: {
+          visibility: { type: 'number', description: '공개설정 (20=공개, 15=보호, 0=비공개)' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_category',
+      description: '블로그 카테고리를 변경합니다.',
+      parameters: {
+        type: 'object',
+        properties: {
+          category_name: { type: 'string', description: '카테고리 이름' },
+        },
+        required: ['category_name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_visibility',
+      description: '공개설정을 변경합니다.',
+      parameters: {
+        type: 'object',
+        properties: {
+          visibility: {
+            type: 'string',
+            enum: ['공개', '보호', '비공개'],
+            description: '공개설정',
+          },
+        },
+        required: ['visibility'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_blog_status',
+      description: '현재 블로그 상태를 조회합니다 (초안 유무, 카테고리, 모델 등).',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+];
+
+/**
+ * 에이전트 루프 실행
+ * @param {string} userMessage - 사용자 입력
+ * @param {Object} context - 외부 의존성
+ * @param {Object} context.state - 앱 상태 (draft, categories, model, tone 등)
+ * @param {Function} context.publishPost - 발행 함수
+ * @param {Function} context.saveDraft - 임시저장 함수
+ * @param {Function} context.getCategories - 카테고리 조회
+ * @param {Function} context.onToolCall - 도구 호출 시 콜백 (name, args) => void
+ * @param {Function} context.onToolResult - 도구 결과 콜백 (name, result) => void
+ * @returns {Promise<string>} AI 최종 텍스트 응답
+ */
+const runAgent = async (userMessage, context) => {
+  const { state, publishPost: publishFn, onToolCall, onToolResult } = context;
+  const config = loadConfig();
+  const model = state.model || config.defaultModel;
+
+  // 대화 히스토리에 사용자 메시지 추가
+  state.chatHistory.push({ role: 'user', content: userMessage });
+
+  const messages = [
+    { role: 'system', content: loadAgentPrompt() },
+    ...state.chatHistory,
+  ];
+
+  const MAX_LOOPS = 10;
+
+  for (let loop = 0; loop < MAX_LOOPS; loop++) {
+    let res;
+    try {
+      res = await getClient().chat.completions.create({
+        model,
+        messages,
+        tools: agentTools,
+        ...(!isReasoningModel(model) && { temperature: 0.7 }),
+      });
+    } catch (e) {
+      handleApiError(e);
+    }
+
+    const choice = res.choices[0];
+    const msg = choice.message;
+
+    // 메시지를 히스토리에 추가
+    messages.push(msg);
+
+    // tool_calls가 없으면 텍스트 응답 반환
+    if (!msg.tool_calls || msg.tool_calls.length === 0) {
+      const text = msg.content || '';
+      state.chatHistory.push({ role: 'assistant', content: text });
+      return text;
+    }
+
+    // tool_calls 처리
+    for (const toolCall of msg.tool_calls) {
+      const fnName = toolCall.function.name;
+      const args = JSON.parse(toolCall.function.arguments || '{}');
+
+      if (onToolCall) onToolCall(fnName, args);
+
+      let result;
+      try {
+        result = await executeAgentTool(fnName, args, { state, publishFn, config });
+      } catch (e) {
+        result = { error: e.message };
+      }
+
+      const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+
+      if (onToolResult) onToolResult(fnName, result);
+
+      messages.push({
+        role: 'tool',
+        tool_call_id: toolCall.id,
+        content: resultStr,
+      });
+    }
+  }
+
+  // 루프 초과 시
+  const fallback = '작업이 너무 많은 단계를 거쳤습니다. 현재까지의 진행 상황을 확인해주세요.';
+  state.chatHistory.push({ role: 'assistant', content: fallback });
+  return fallback;
+};
+
+/**
+ * 에이전트 도구 실행
+ */
+const executeAgentTool = async (name, args, { state, publishFn, config }) => {
+  switch (name) {
+    case 'generate_post': {
+      const tone = args.tone || state.tone || config.defaultTone;
+      const result = await generatePost(args.topic, {
+        model: state.model,
+        tone,
+      });
+      state.draft = result;
+      return { success: true, title: result.title, tags: result.tags };
+    }
+
+    case 'edit_post': {
+      if (!state.draft) return { error: '초안이 없습니다. 먼저 글을 생성해주세요.' };
+      const result = await revisePost(state.draft.content, args.instruction, state.model);
+      state.draft.title = result.title;
+      state.draft.content = result.content;
+      state.draft.tags = result.tags;
+      return { success: true, title: result.title, tags: result.tags };
+    }
+
+    case 'preview_post': {
+      if (!state.draft) return { error: '초안이 없습니다.' };
+      const plain = state.draft.content
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&');
+      return {
+        title: state.draft.title,
+        preview: plain.slice(0, 500) + (plain.length > 500 ? '...' : ''),
+        tags: state.draft.tags,
+      };
+    }
+
+    case 'publish_post': {
+      if (!state.draft) return { error: '초안이 없습니다.' };
+      const vis = args.visibility != null ? args.visibility : state.visibility;
+      const result = await publishFn({
+        title: state.draft.title,
+        content: state.draft.content,
+        visibility: vis,
+        category: state.category,
+        tag: state.draft.tags,
+        thumbnail: state.draft.thumbnailKage || null,
+      });
+      const url = result.entryUrl || '';
+      state.draft = null;
+      return { success: true, url };
+    }
+
+    case 'set_category': {
+      const id = state.categories[args.category_name];
+      if (id === undefined) {
+        return { error: `"${args.category_name}" 카테고리를 찾을 수 없습니다.`, available: Object.keys(state.categories) };
+      }
+      state.category = id;
+      return { success: true, category: args.category_name, id };
+    }
+
+    case 'set_visibility': {
+      const visMap = { '공개': 20, '보호': 15, '비공개': 0 };
+      if (visMap[args.visibility] === undefined) {
+        return { error: '유효하지 않은 공개설정입니다. 공개/보호/비공개 중 선택하세요.' };
+      }
+      state.visibility = visMap[args.visibility];
+      return { success: true, visibility: args.visibility };
+    }
+
+    case 'get_blog_status': {
+      return {
+        hasDraft: !!state.draft,
+        draftTitle: state.draft?.title || null,
+        category: Object.entries(state.categories).find(([, id]) => id === state.category)?.[0] || '없음',
+        visibility: state.visibility === 20 ? '공개' : state.visibility === 15 ? '보호' : '비공개',
+        model: state.model,
+        tone: state.tone,
+        availableCategories: Object.keys(state.categories),
+      };
+    }
+
+    default:
+      return { error: `알 수 없는 도구: ${name}` };
+  }
+};
+
+module.exports = { generatePost, revisePost, chat, runAgent, MODELS, loadConfig };

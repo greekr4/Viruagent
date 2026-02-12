@@ -1,6 +1,6 @@
 const readline = require('readline');
 const chalk = require('chalk');
-const { generatePost, revisePost, chat, MODELS, loadConfig } = require('./lib/ai');
+const { generatePost, revisePost, chat, runAgent, MODELS, loadConfig } = require('./lib/ai');
 const { initBlog, getBlogName, publishPost, saveDraft, getPosts, getCategories, VISIBILITY } = require('./lib/tistory');
 
 const TONES = loadConfig().tones.map((t) => t.name);
@@ -601,7 +601,8 @@ ${chalk.cyan('/logout')}            로그아웃 (세션 삭제)
 ${chalk.cyan('/help')}              도움말
 ${chalk.cyan('/exit')}              종료
 
-슬래시 없이 입력하면 AI와 자유 대화 (주제 논의, 아이디어 등)
+슬래시 없이 자연어로 입력하면 AI가 자율적으로 도구를 호출합니다.
+${chalk.dim('예: "AI 트렌드로 글 써줘", "서론을 더 흥미롭게 수정해줘", "발행해줘"')}
 `);
   },
 
@@ -659,12 +660,57 @@ const handleInput = async (input) => {
       log.warn(`알 수 없는 명령어: /${cmd}. /help로 확인하세요.`);
     }
   } else {
-    // 자유 대화
-    state.chatHistory.push({ role: 'user', content: trimmed });
+    // 에이전트 루프 (자연어 → 자율 도구 호출)
     try {
-      const reply = await withSpinner('생각하는 중...', () => chat(state.chatHistory, state.model));
-      state.chatHistory.push({ role: 'assistant', content: reply });
-      console.log(`\n${chalk.blue('AI')} ${reply}\n`);
+      // Braille 도트 애니메이션 (텍스트 없이)
+      const DOT_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+      const DOT_COLORS = [chalk.cyan, chalk.blue, chalk.magenta, chalk.blue];
+      let spinnerTimer = null;
+      let spinnerIdx = 0;
+
+      const startSpinner = () => {
+        stopSpinner();
+        spinnerTimer = setInterval(() => {
+          const colorFn = DOT_COLORS[Math.floor(spinnerIdx / 3) % DOT_COLORS.length];
+          process.stdout.write(`\r\x1B[K  ${colorFn(DOT_FRAMES[spinnerIdx++ % DOT_FRAMES.length])}`);
+        }, 80);
+      };
+
+      const stopSpinner = () => {
+        if (spinnerTimer) {
+          clearInterval(spinnerTimer);
+          spinnerTimer = null;
+          process.stdout.write('\r\x1B[K');
+        }
+      };
+
+      startSpinner();
+
+      const reply = await runAgent(trimmed, {
+        state,
+        publishPost: publishPost,
+        onToolCall: () => {},
+        onToolResult: (name, result) => {
+          stopSpinner();
+          if (result?.error) {
+            log.warn(result.error);
+          } else if (name === 'generate_post' && result?.title) {
+            log.success(`글 생성 완료: "${result.title}"`);
+          } else if (name === 'edit_post' && result?.title) {
+            log.success(`수정 완료: "${result.title}"`);
+          } else if (name === 'publish_post' && result?.url) {
+            log.success(`발행 완료! ${result.url}`);
+          } else if (name === 'set_category' && result?.category) {
+            log.success(`카테고리 설정: ${result.category}`);
+          } else if (name === 'set_visibility' && result?.visibility) {
+            log.success(`공개설정: ${result.visibility}`);
+          }
+          startSpinner();
+        },
+      });
+
+      stopSpinner();
+      console.log(`\n${chalk.blue('AI')}\n${reply}\n`);
     } catch (e) {
       log.error(`대화 실패: ${e.message}`);
     }
