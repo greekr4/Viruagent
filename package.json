@@ -1,6 +1,6 @@
 {
   "name": "viruagent",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "AI 기반 티스토리 블로그 자동 발행 CLI 도구",
   "main": "src/agent.js",
   "bin": {
@@ -8,7 +8,8 @@
   },
   "scripts": {
     "start": "node --no-deprecation src/agent.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:websearch": "node scripts/test-websearch.js"
   },
   "keywords": [
     "tistory",

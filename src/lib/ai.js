@@ -13,6 +13,10 @@ const getClient = () => {
 };
 
 const { replaceImagePlaceholders } = require('./unsplash');
+const { searchWeb } = require('./websearch');
+const { readRecentPatterns, recordPublishedPattern } = require('./pattern-store');
+const { pickAllowedTitleTypes, isAllowedTitle, inferTitleType } = require('./title-policy');
+const { pickStructureTemplate, summarizeRecentPatterns } = require('./structure-policy');
 const { createLogger } = require('./logger');
 const aiLog = createLogger('ai');
 
@@ -34,6 +38,13 @@ const SYSTEM_PROMPT_PATH = path.join(__dirname, '..', '..', 'config', 'system-pr
 
 const loadConfig = () => {
   const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+  config.webSearch = {
+    enabled: true,
+    provider: 'duckduckgo',
+    defaultMaxResults: 5,
+    timeoutMs: 8000,
+    ...(config.webSearch || {}),
+  };
   config.systemPrompt = fs.readFileSync(SYSTEM_PROMPT_PATH, 'utf-8');
   return config;
 };
@@ -56,6 +67,124 @@ const MODELS = [
 // reasoning 모델은 temperature를 지원하지 않음
 const REASONING_MODELS = /^(o[1-9]|o\d+-)/;
 const isReasoningModel = (model) => REASONING_MODELS.test(model);
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+const normalizeQuery = (text = '') =>
+  String(text).toLowerCase().replace(/\s+/g, ' ').trim();
+
+const isSimilarQuery = (a, b) => {
+  const q1 = normalizeQuery(a);
+  const q2 = normalizeQuery(b);
+  if (!q1 || !q2) return false;
+  return q1 === q2 || q1.includes(q2) || q2.includes(q1);
+};
+
+const extractFocusKeywords = (topic = '') => {
+  const tokens = String(topic)
+    .match(/[A-Za-z0-9+#.-]{2,}|[가-힣]{2,}/g);
+
+  if (!tokens) return [];
+
+  const stopWords = new Set(['차이', '비교', '가이드', '정리', '최신', '이슈', '대한', '관련']);
+  const uniq = [];
+  for (const token of tokens) {
+    const key = token.toLowerCase();
+    if (stopWords.has(key)) continue;
+    if (!uniq.some((x) => x.toLowerCase() === key)) uniq.push(token);
+  }
+
+  return uniq.slice(0, 8);
+};
+
+const buildResearchPromptBlock = (webResearch) => {
+  if (!webResearch) {
+    return '웹검색 참고자료: 검색 컨텍스트 없음. 일반적인 지식과 원칙을 기반으로 작성하세요.';
+  }
+
+  if (!Array.isArray(webResearch.results) || webResearch.results.length === 0) {
+    return `웹검색 참고자료:
+- 검색어: ${webResearch.query || '없음'}
+- 검색 시각: ${webResearch.fetchedAt || '없음'}
+- 결과 없음: 과도한 단정 없이 일반 원칙 중심으로 작성하세요.`;
+  }
+
+  const items = webResearch.results
+    .slice(0, 5)
+    .map(
+      (item, idx) =>
+        `${idx + 1}. 제목: ${item.title}\n   요약: ${item.snippet || '요약 없음'}\n   URL: ${item.url}`,
+    )
+    .join('\n');
+
+  return `웹검색 참고자료:
+- 검색어: ${webResearch.query || '없음'}
+- 검색 시각: ${webResearch.fetchedAt || '없음'}
+- 결과:
+${items}`;
+};
+
+const getWebSearchOptions = (config, maxResultsOverride) => {
+  const fallbackMax = Number(config.webSearch?.defaultMaxResults) || 5;
+  const maxResults =
+    maxResultsOverride != null ? clamp(Number(maxResultsOverride) || fallbackMax, 1, 8) : fallbackMax;
+
+  return {
+    maxResults,
+    timeoutMs: Number(config.webSearch?.timeoutMs) || 8000,
+  };
+};
+
+const titleTypeLabel = (type) => {
+  const map = {
+    numeric: '숫자형',
+    question: '질문형',
+    contrast: '대조형',
+    statement: '문장형',
+  };
+  return map[type] || type;
+};
+
+const stripHtml = (html = '') =>
+  String(html)
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const regenerateTitleByPolicy = async ({ model, topic, tone, content, allowedTypes }) => {
+  let res;
+  try {
+    const allowedText = allowedTypes.map((t) => titleTypeLabel(t)).join(', ');
+    const plain = stripHtml(content).slice(0, 800);
+    res = await getClient().chat.completions.create({
+      model,
+      messages: [
+        { role: 'system', content: '당신은 블로그 제목 생성기입니다. 입력된 주제와 본문 요약을 바탕으로 허용된 타입의 제목만 생성하세요.' },
+        {
+          role: 'user',
+          content: `주제: ${topic}
+말투: ${tone}
+허용 제목 타입: ${allowedText}
+본문 요약:
+${plain}
+
+다음 JSON 형식으로 응답하세요:
+{"title": "허용 타입을 지킨 제목"}`,
+        },
+      ],
+      response_format: { type: 'json_object' },
+      ...(!isReasoningModel(model) && { temperature: 0.4 }),
+    });
+  } catch (e) {
+    handleApiError(e);
+  }
+
+  const parsed = JSON.parse(res.choices[0].message.content || '{}');
+  return (parsed.title || '').trim() || null;
+};
 
 /**
  * 블로그 글 초안 생성
@@ -64,6 +193,9 @@ const isReasoningModel = (model) => REASONING_MODELS.test(model);
  * @param {string} [options.tone] - 말투
  * @param {number} [options.length] - 대략적인 글자 수
  * @param {string} [options.model] - 모델명
+ * @param {{query: string, fetchedAt: string, results: Array<{title: string, url: string, snippet: string}>} | null} [options.webResearch] - 웹검색 컨텍스트
+ * @param {string} [options.categoryName] - 카테고리 이름
+ * @param {Array<Object>} [options.recentPatterns] - 최근 발행 패턴 요약
  * @returns {Promise<{title: string, content: string, tags: string}>}
  */
 const generatePost = async (topic, options = {}) => {
@@ -72,7 +204,39 @@ const generatePost = async (topic, options = {}) => {
     tone = config.defaultTone,
     length = config.defaultLength,
     model = config.defaultModel,
+    webResearch: providedWebResearch,
+    categoryName = 'Heartbeat',
+    recentPatterns: providedRecentPatterns,
   } = options;
+  let webResearch = providedWebResearch;
+  const recentPatterns = Array.isArray(providedRecentPatterns)
+    ? providedRecentPatterns
+    : readRecentPatterns({ category: categoryName, limit: 5 });
+  const titlePolicy = pickAllowedTitleTypes(recentPatterns, 0.4);
+  const structurePlan = pickStructureTemplate({ topic, recentPatterns });
+  const recentPatternSummary = summarizeRecentPatterns(recentPatterns);
+
+  if (webResearch === undefined && config.webSearch?.enabled !== false) {
+    try {
+      webResearch = await searchWeb(topic, getWebSearchOptions(config));
+    } catch (e) {
+      aiLog.warn('웹검색 컨텍스트 확보 실패', { topic, error: e.message });
+      webResearch = null;
+    }
+  }
+
+  const researchPrompt = buildResearchPromptBlock(webResearch);
+  const focusKeywords = extractFocusKeywords(topic);
+  const focusKeywordLine = focusKeywords.length ? focusKeywords.join(', ') : topic;
+  const allowedTitleTypesLabel = titlePolicy.allowed.map((t) => titleTypeLabel(t)).join(', ');
+  aiLog.info('글 생성 입력 준비', {
+    topic,
+    categoryName,
+    hasWebResearch: !!webResearch,
+    webResultCount: webResearch?.results?.length || 0,
+    allowedTitleTypes: titlePolicy.allowed,
+    structureType: structurePlan.id,
+  });
 
   let res;
   try {
@@ -86,11 +250,27 @@ const generatePost = async (topic, options = {}) => {
 말투: ${tone}
 분량: 약 ${length}자
 
+${researchPrompt}
+
+핵심 주제 키워드: ${focusKeywordLine}
+
 작성 요구사항:
-- 제목은 검색 키워드를 포함하면서 클릭을 유도하는 형태로 작성 (숫자 활용 권장)
+- 제목은 검색 키워드를 포함하면서 클릭을 유도하되, 허용된 제목 타입만 사용
 - 주제에 가장 적합한 글 유형과 구조를 자율적으로 선택하여 작성
 - 본문 중 적절한 위치에 <!-- IMAGE: 영문키워드 --> 플레이스홀더를 3개 내외 삽입
 - 태그는 검색 유입에 효과적인 키워드 5~7개
+- 웹검색 참고자료가 있으면 최신성과 사실성을 우선 반영
+- 참고자료가 부족하거나 상충하면 단정적 표현을 피하고 불확실성을 반영
+- 글의 범위가 주제에서 벗어나지 않도록 유지하고, 핵심 주제 키워드 기준으로 섹션을 구성
+- 가격/요금제/날짜/버전 등 수치형 정보는 검색 참고자료에서 확인된 경우만 단정적으로 작성
+- 수치형 근거가 약하면 "시점에 따라 변동될 수 있음"으로 표현하고 과도한 단정 금지
+- 본문 HTML에는 참고 링크(URL)나 출처 섹션을 직접 노출하지 말 것
+- 허용 제목 타입: ${allowedTitleTypesLabel}
+- 최근 글 패턴 요약:
+${recentPatternSummary}
+- 이번 글 구조 템플릿: ${structurePlan.id}
+- 템플릿 지시:
+${structurePlan.instruction}
 
 다음 JSON 형식으로 응답하세요:
 {"title": "글 제목", "content": "<p>HTML 본문...</p>", "tags": "태그1,태그2,태그3,태그4,태그5"}`,
@@ -104,6 +284,35 @@ const generatePost = async (topic, options = {}) => {
   }
 
   const result = JSON.parse(res.choices[0].message.content);
+  const titleCheck = isAllowedTitle(result.title, titlePolicy.allowed);
+  if (!titleCheck.ok) {
+    aiLog.warn('제목 타입 정책 위반, 제목 재생성 시도', {
+      topic,
+      originalTitle: result.title,
+      originalType: titleCheck.type,
+      allowed: titlePolicy.allowed,
+    });
+    const regenerated = await regenerateTitleByPolicy({
+      model,
+      topic,
+      tone,
+      content: result.content,
+      allowedTypes: titlePolicy.allowed,
+    });
+    if (regenerated) {
+      const retryCheck = isAllowedTitle(regenerated, titlePolicy.allowed);
+      if (retryCheck.ok) result.title = regenerated;
+    }
+  }
+
+  result._meta = {
+    topic,
+    categoryName,
+    structureType: structurePlan.id,
+    sectionKeys: structurePlan.sectionKeys,
+    titleType: inferTitleType(result.title),
+    allowedTitleTypes: titlePolicy.allowed,
+  };
   aiLog.info('GPT 응답 수신', { title: result.title, contentLength: result.content?.length });
 
   // 티스토리 업로드 함수가 있으면 전달 (initBlog 완료 상태에서만 동작)
@@ -201,6 +410,21 @@ const loadAgentPrompt = () => {
 };
 
 const agentTools = [
+  {
+    type: 'function',
+    function: {
+      name: 'search_web',
+      description: '웹에서 최신 정보를 검색합니다. 글 작성 전 사실 확인이나 트렌드 파악이 필요할 때 사용합니다.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: '검색어' },
+          max_results: { type: 'integer', description: '가져올 최대 결과 수 (1~8)', minimum: 1, maximum: 8 },
+        },
+        required: ['query'],
+      },
+    },
+  },
   {
     type: 'function',
     function: {
@@ -381,13 +605,53 @@ const runAgent = async (userMessage, context) => {
 /**
  * 에이전트 도구 실행
  */
+const NEEDS_LOGIN = ['publish_post', 'set_category'];
+
 const executeAgentTool = async (name, args, { state, publishFn, config }) => {
+  if (NEEDS_LOGIN.includes(name) && !state.blogConnected) {
+    return { error: '티스토리 로그인이 필요합니다. /login 명령어로 먼저 로그인하세요.' };
+  }
+
   switch (name) {
+    case 'search_web': {
+      if (config.webSearch?.enabled === false) {
+        return { error: '웹검색 기능이 비활성화되어 있습니다.' };
+      }
+
+      const maxResults = args.max_results != null ? args.max_results : undefined;
+      const result = await searchWeb(args.query, getWebSearchOptions(config, maxResults));
+      state.lastWebResearch = result;
+      return {
+        success: true,
+        query: result.query,
+        fetchedAt: result.fetchedAt,
+        count: result.results.length,
+        results: result.results,
+      };
+    }
+
     case 'generate_post': {
       const tone = args.tone || state.tone || config.defaultTone;
+      let webResearch = state.lastWebResearch;
+      const categoryName = Object.entries(state.categories || {}).find(([, id]) => id === state.category)?.[0] || 'Heartbeat';
+      const recentPatterns = readRecentPatterns({ category: categoryName, limit: 5 });
+
+      if (!webResearch || !isSimilarQuery(webResearch.query, args.topic)) {
+        try {
+          webResearch = await searchWeb(args.topic, getWebSearchOptions(config));
+          state.lastWebResearch = webResearch;
+        } catch (e) {
+          aiLog.warn('에이전트 웹검색 실패, 생성 계속 진행', { topic: args.topic, error: e.message });
+          webResearch = null;
+        }
+      }
+
       const result = await generatePost(args.topic, {
         model: state.model,
         tone,
+        webResearch,
+        categoryName,
+        recentPatterns,
       });
       state.draft = result;
       return { success: true, title: result.title, tags: result.tags };
@@ -429,6 +693,16 @@ const executeAgentTool = async (name, args, { state, publishFn, config }) => {
         thumbnail: state.draft.thumbnailKage || null,
       });
       const url = result.entryUrl || '';
+      const categoryName = Object.entries(state.categories || {}).find(([, id]) => id === state.category)?.[0] || 'Heartbeat';
+      recordPublishedPattern({
+        title: state.draft.title,
+        topic: state.draft?._meta?.topic || '',
+        content: state.draft.content,
+        url,
+        postId: result?.post?.id || result?.id || null,
+        category: categoryName,
+        generationMeta: state.draft?._meta || null,
+      });
       state.draft = null;
       return { success: true, url };
     }
