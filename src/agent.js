@@ -2,6 +2,7 @@ const readline = require('readline');
 const chalk = require('chalk');
 const { generatePost, revisePost, chat, runAgent, MODELS, loadConfig } = require('./lib/ai');
 const { initBlog, getBlogName, publishPost, saveDraft, getPosts, getCategories, VISIBILITY } = require('./lib/tistory');
+const { readRecentPatterns, recordPublishedPattern } = require('./lib/pattern-store');
 
 const TONES = loadConfig().tones.map((t) => t.name);
 
@@ -102,6 +103,8 @@ const state = {
   model: saved.model,
   tone: saved.tone,
   chatHistory: [],
+  blogConnected: false,
+  lastWebResearch: null,
 };
 
 const log = {
@@ -121,17 +124,29 @@ const animateBanner = async () => {
   const figlet = require('figlet');
   const gradient = require('gradient-string');
 
-  const text = figlet.textSync('ViruAgent', { font: 'ANSI Shadow' });
-  const lines = text.split('\n');
-  const totalLines = lines.length;
+  const viruText = figlet.textSync('Viru', { font: 'ANSI Shadow' });
+  const agentText = figlet.textSync('Agent', { font: 'ANSI Shadow' });
+  const viruLines = viruText.split('\n');
+  const agentLines = agentText.split('\n');
+
+  // 두 figlet의 줄 수를 맞춤
+  const maxLines = Math.max(viruLines.length, agentLines.length);
+  while (viruLines.length < maxLines) viruLines.push('');
+  while (agentLines.length < maxLines) agentLines.push('');
+
+  const viruGrad = gradient(['#ff0844', '#ff6b6b', '#ee5a24', '#f9d423']); // 빨강→핑크→주황→노랑
+  const agentGrad = gradient(['#00d2ff', '#4ecdc4', '#7b68ee', '#a855f7']); // 하늘→민트→보라→퍼플
+
   const { version } = require('../package.json');
-  const sub = `  대화형 티스토리 블로그 에이전트  v${version}`;
+  const sub = `  티스토리 블로그 에이전트  v${version}`;
 
   console.log();
 
-  // 라인별 드롭 애니메이션
-  for (let i = 0; i < totalLines; i++) {
-    console.log(gradient.pastel(lines[i]));
+  // 라인별 드롭 애니메이션 (VIRU + AGENT 나란히)
+  for (let i = 0; i < maxLines; i++) {
+    const viruPart = viruGrad(viruLines[i]);
+    const agentPart = agentGrad(agentLines[i]);
+    console.log(viruPart + agentPart);
     await sleep(40);
   }
 
@@ -351,9 +366,26 @@ const commands = {
     const topic = args.join(' ');
     if (!topic) return log.warn('사용법: /write <주제>');
 
+    if (!state.blogConnected) {
+      log.warn('티스토리 로그인이 안 되어있습니다.');
+      rl.pause();
+      const idx = await selectMenu(
+        ['그래도 진행', '로그인하기', '취소'],
+        '로그인 없이 진행하시겠습니까? (↑↓ 이동, Enter 선택)',
+      );
+      rl.resume();
+      if (idx === 1) {
+        await commands.login();
+      } else if (idx !== 0) {
+        return log.dim('취소됨');
+      }
+    }
+
     try {
+      const categoryName = getCategoryName() === '없음' ? 'Heartbeat' : getCategoryName();
+      const recentPatterns = readRecentPatterns({ category: categoryName, limit: 5 });
       state.draft = await withSpinner(`"${topic}" 주제로 글을 생성하는 중...`, () =>
-        generatePost(topic, { model: state.model, tone: state.tone }),
+        generatePost(topic, { model: state.model, tone: state.tone, categoryName, recentPatterns }),
       );
       log.success(`글 생성 완료: "${state.draft.title}"`);
       log.dim(`태그: ${state.draft.tags}`);
@@ -396,6 +428,7 @@ const commands = {
   },
 
   async publish() {
+    if (!state.blogConnected) return log.warn('티스토리 로그인이 필요합니다. /login으로 먼저 로그인하세요.');
     if (!state.draft) return log.warn('초안이 없습니다.');
 
     log.info('발행하는 중...');
@@ -408,6 +441,16 @@ const commands = {
         tag: state.draft.tags,
         thumbnail: state.draft.thumbnailKage || null,
       });
+      const categoryName = getCategoryName() === '없음' ? 'Heartbeat' : getCategoryName();
+      recordPublishedPattern({
+        title: state.draft.title,
+        topic: state.draft?._meta?.topic || '',
+        content: state.draft.content,
+        url: result.entryUrl || '',
+        postId: result?.post?.id || result?.id || null,
+        category: categoryName,
+        generationMeta: state.draft?._meta || null,
+      });
       log.success(`발행 완료! ${result.entryUrl || ''}`);
       state.draft = null;
     } catch (e) {
@@ -416,6 +459,7 @@ const commands = {
   },
 
   async draft() {
+    if (!state.blogConnected) return log.warn('티스토리 로그인이 필요합니다. /login으로 먼저 로그인하세요.');
     if (!state.draft) return log.warn('초안이 없습니다.');
 
     log.info('임시저장하는 중...');
@@ -531,7 +575,7 @@ const commands = {
       }
     } else if (key === 'api') {
       const keys = loadApiKeys();
-      const mask = (v) => v ? `${v.slice(0, 8)}${'*'.repeat(8)}` : chalk.dim('(미설정)');
+      const mask = (v) => (v ? `${v.slice(0, 8)}${'*'.repeat(8)}` : chalk.dim('(미설정)'));
 
       console.log();
       log.title('API Key 설정');
@@ -629,6 +673,7 @@ ${chalk.dim('예: "AI 트렌드로 글 써줘", "서론을 더 흥미롭게 수�
       await initBlog();
       log.success(`블로그 감지: ${getBlogName()}`);
       state.categories = await getCategories();
+      state.blogConnected = true;
       log.success(`${Object.keys(state.categories).length}개 카테고리 로드 완료`);
     } catch (e) {
       log.error(`로그인 실패: ${e.message}`);
@@ -661,6 +706,20 @@ const handleInput = async (input) => {
     }
   } else {
     // 에이전트 루프 (자연어 → 자율 도구 호출)
+    if (!state.blogConnected) {
+      log.warn('티스토리 로그인이 안 되어있습니다.');
+      rl.pause();
+      const idx = await selectMenu(
+        ['그래도 진행', '로그인하기', '취소'],
+        '로그인 없이 진행하시겠습니까? (↑↓ 이동, Enter 선택)',
+      );
+      rl.resume();
+      if (idx === 1) {
+        await commands.login();
+      } else if (idx !== 0) {
+        return log.dim('취소됨');
+      }
+    }
     try {
       // Braille 도트 애니메이션 (텍스트 없이)
       const DOT_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -704,6 +763,8 @@ const handleInput = async (input) => {
             log.success(`카테고리 설정: ${result.category}`);
           } else if (name === 'set_visibility' && result?.visibility) {
             log.success(`공개설정: ${result.visibility}`);
+          } else if (name === 'search_web' && result?.success) {
+            log.success(`웹검색 완료: "${result.query}" (${result.count}건)`);
           }
           startSpinner();
         },
@@ -873,6 +934,7 @@ const main = async () => {
       1200,
     );
     blogOk = true;
+    state.blogConnected = true;
   } catch (e) {
     if (!blogOk) log.warn(`  티스토리 연결 실패: ${e.message}\n  ${chalk.dim('/login 명령어로 다시 로그인하세요.')}`);
   }

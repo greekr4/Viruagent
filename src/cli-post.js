@@ -15,6 +15,7 @@ try {
 
 const { generatePost, loadConfig } = require('./lib/ai');
 const { initBlog, publishPost, saveDraft, getCategories, VISIBILITY } = require('./lib/tistory');
+const { readRecentPatterns, recordPublishedPattern } = require('./lib/pattern-store');
 
 const parseArgs = (argv) => {
   const args = {};
@@ -40,6 +41,16 @@ const output = (obj) => {
   console.log(JSON.stringify(obj));
 };
 
+const resolveCategoryName = async (categoryId) => {
+  try {
+    const categories = await getCategories();
+    const found = Object.entries(categories).find(([, id]) => Number(id) === Number(categoryId));
+    return found ? found[0] : 'Heartbeat';
+  } catch {
+    return 'Heartbeat';
+  }
+};
+
 const main = async () => {
   const args = parseArgs(process.argv.slice(2));
 
@@ -59,11 +70,16 @@ const main = async () => {
   }
 
   const config = loadConfig();
+  const category = Number(args.category) || 0;
+  const categoryName = await resolveCategoryName(category);
+  const recentPatterns = readRecentPatterns({ category: categoryName, limit: 5 });
 
   // 글 생성
   const post = await generatePost(args.topic, {
     model: args.model || config.defaultModel,
     tone: args.tone || config.defaultTone,
+    categoryName,
+    recentPatterns,
   });
 
   // dry-run: 생성만
@@ -73,7 +89,6 @@ const main = async () => {
   }
 
   const visibility = visibilityMap[args.visibility] ?? VISIBILITY.PUBLIC;
-  const category = Number(args.category) || 0;
 
   // 임시저장
   if (args.draft) {
@@ -93,6 +108,15 @@ const main = async () => {
   });
 
   const url = result.entryUrl || null;
+  recordPublishedPattern({
+    title: post.title,
+    topic: post?._meta?.topic || args.topic,
+    content: post.content,
+    url: url || '',
+    postId: result?.post?.id || result?.id || null,
+    category: categoryName,
+    generationMeta: post?._meta || null,
+  });
 
   output({ success: true, mode: 'publish', title: post.title, tags: post.tags, url });
 };

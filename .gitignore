@@ -7,3 +7,4 @@ logs/
 /.playwright-mcp
 HANDOFF.md
 docs/
+/scripts

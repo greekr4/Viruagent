@@ -9,6 +9,12 @@
   "defaultTone": "정보전달",
   "defaultLength": 2500,
   "defaultModel": "gpt-4o-mini",
+  "webSearch": {
+    "enabled": true,
+    "provider": "duckduckgo",
+    "defaultMaxResults": 5,
+    "timeoutMs": 8000
+  },
   "imageSource": "unsplash",
   "imagesPerPost": 3
 }

@@ -19,6 +19,7 @@
 
 - **자연어로 글 발행** — "AI 트렌드로 글 써서 발행해줘"라고 말하면 AI가 알아서 글 생성부터 발행까지 처리합니다.
 - **에이전트 패턴** — OpenAI Function Calling 기반. AI가 도구를 자율적으로 선택하고 실행하는 에이전트 루프로 동작합니다.
+- **웹검색 기반 글쓰기** — DuckDuckGo 검색 결과를 바탕으로 최신 정보/트렌드를 반영해 글 초안을 생성합니다.
 - **수동 명령어 호환** — `/write`, `/edit`, `/publish` 같은 슬래시 명령어도 그대로 사용할 수 있습니다.
 - **Unsplash 이미지 자동 삽입** — 글 생성 시 주제에 맞는 이미지를 자동 검색하고 티스토리에 업로드합니다. 첫 번째 이미지가 썸네일로 설정됩니다.
 - **브라우저 로그인으로 세션 관리** — OAuth 설정 없이 Playwright로 실제 로그인해서 쿠키를 가져옵니다.
@@ -177,6 +178,12 @@ config/
   "defaultModel": "gpt-4o-mini",
   "defaultTone": "정보전달",
   "defaultLength": 2500,
+  "webSearch": {
+    "enabled": true,
+    "provider": "duckduckgo",
+    "defaultMaxResults": 5,
+    "timeoutMs": 8000
+  },
   "imageSource": "unsplash",
   "imagesPerPost": 3
 }
@@ -228,3 +235,14 @@ logs/
 ## License
 
 MIT
+
+<hr>
+
+<small><strong>Patch Notes</strong></small>
+<small>- v1.3.0: 웹 검색 기반 글 작성 도구 추가, 발행 로그 기반 패턴 요약 적용</small>
+<small>- v1.2.0: 초기 설정 위저드, 저장 방식 전환, 스피너 수정, Function Calling 에이전트 도입</small>
+<small>- v1.1.1: 로그 시스템 추가 및 관련 문서화</small>
+<small>- v1.1.0: 시스템 프롬프트 분리, 글 구조 유연화, Unsplash 연동, 썸네일 자동 설정</small>
+<small>- v1.0.2: README 명령어/이미지 문서 보강</small>
+<small>- v1.0.1: 프로젝트 구조 재편 + CLI 패키지 경로/설정 정리</small>
+<small>- v1.0.0: 티스토리 자동 글쓰기 모듈 초기 설정</small>
