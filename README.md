@@ -1,4 +1,4 @@
-<img width="525" height="113" alt="image" src="https://github.com/user-attachments/assets/8bbd21d3-5f14-4d11-933d-17bdf6969ebf" />
+<img width="519" height="106" alt="image" src="https://github.com/user-attachments/assets/89af1027-73ac-4dfc-8268-e416aab73e3a" />
 
 # ViruAgent
 
